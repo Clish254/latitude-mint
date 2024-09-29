@@ -13,7 +13,7 @@ Build an app that captures an image through the camera, mints an NFT with that i
 - react-native-image-picker
 - @react-native-community/geolocation
 
-![Solflare sneakpeak](solflare.png)
+![demo](demo.png)
 
 ## Steps to run the project
 1. Install yarn if you don't have it already
