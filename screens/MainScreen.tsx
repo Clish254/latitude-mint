@@ -23,8 +23,16 @@ import SignMessageButton from '../components/SignMessageButton';
 import SignTransactionButton from '../components/SignTransactionButton';
 import TakePhotoButton from '../components/TakePhotoButton';
 import Geolocation from '@react-native-community/geolocation';
+import RNFetchBlob from 'rn-fetch-blob';
+import Config from 'react-native-config';
+import {
+  transact,
+  Web3MobileWallet,
+} from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
+import useMetaplex from '../metaplex-util/useMetaplex';
 
 export default function MainScreen() {
+  const {authorizeSession} = useAuthorization();
   const {connection} = useConnection();
   const {selectedAccount} = useAuthorization();
   const [balance, setBalance] = useState<number | null>(null);
@@ -92,6 +100,98 @@ export default function MainScreen() {
     );
   };
 
+  const mintNft = async () => {
+    if (photoPath) {
+      // Read the image file and get the base64 string.
+      const imageBytesInBase64: string = await RNFetchBlob.fs.readFile(
+        photoPath,
+        'base64',
+      );
+
+      // Convert base64 into raw bytes.
+      const bytes = Buffer.from(imageBytesInBase64, 'base64');
+
+      // Upload the image to IPFS by sending a POST request to the NFT.storage upload endpoint.
+      const headers = {
+        Accept: 'application/json',
+        Authorization: `Bearer ${Config.NFT_STORAGE_API_KEY}`,
+      };
+      const imageUpload = await fetch('https://api.nft.storage/upload', {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'image/jpg',
+        },
+        body: bytes,
+      });
+
+      const imageData = await imageUpload.json();
+      console.log(imageData.value.cid);
+      const walletAddress = await transact(async (wallet: Web3MobileWallet) => {
+        const authorizationResult = await authorizeSession(wallet);
+        return authorizationResult.address;
+      });
+      const metadata = {
+        name: 'Lattitude mint nft',
+        description: `Lattitude mint nft, minted at ${location?.latitude},${location?.longitude}`,
+        image: `https://ipfs.io/ipfs/${imageData.value.cid}`,
+        external_url: 'https://github.com/Laugharne/ssf_s7_exo',
+        attributes: [
+          {
+            trait_type: 'Latitude',
+            value: location?.latitude,
+          },
+          {
+            trait_type: 'Longitude',
+            value: location?.longitude,
+          },
+        ],
+        properties: {
+          files: [
+            {
+              uri: `https://ipfs.io/ipfs/${imageData.value.cid}`,
+              type: 'image/jpeg',
+            },
+          ],
+          category: 'image',
+        },
+        creators: [
+          {
+            address: walletAddress,
+            share: 100,
+          },
+        ],
+      };
+      // Upload to IPFS
+      const metadataUpload = await fetch('https://api.nft.storage/upload', {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(metadata),
+      });
+      const metadataData = await metadataUpload.json();
+      console.log(metadataData.value.cid);
+      const {metaplex} = useMetaplex(
+        connection,
+        selectedAccount,
+        authorizeSession,
+      );
+
+      if (metaplex) {
+        const {nft, response} = await metaplex.nfts().create({
+          name: metadata.name,
+          uri: `https://ipfs.io/ipfs/${metadataData.value.cid}`,
+          sellerFeeBasisPoints: 0,
+          tokenOwner: selectedAccount?.publicKey,
+        });
+        console.log(nft.address.toBase58());
+        console.log(response.signature);
+      }
+    }
+  };
+
   useEffect(() => {
     requestLocationPermission();
   }, []);
@@ -117,21 +217,25 @@ export default function MainScreen() {
                         {location.longitude.toFixed(6)}
                       </Text>
                     )}
-                    <Button
-                      title="Mint"
-                      disabled={isMinting}
-                      onPress={async () => {
-                        if (isMinting) {
-                          return;
-                        }
-                        try {
-                          setIsMinting(true);
-                        } catch (err: any) {
-                        } finally {
-                          setIsMinting(false);
-                        }
-                      }}
-                    />
+                    {photoPath && location && (
+                      <Button
+                        title="Mint"
+                        disabled={isMinting}
+                        onPress={async () => {
+                          if (isMinting) {
+                            return;
+                          }
+                          try {
+                            setIsMinting(true);
+                            await mintNft();
+                          } catch (err: any) {
+                            console.error(err);
+                          } finally {
+                            setIsMinting(false);
+                          }
+                        }}
+                      />
+                    )}
                   </>
                 )}
               </Section>
