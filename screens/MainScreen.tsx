@@ -30,10 +30,14 @@ import {
   Web3MobileWallet,
 } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
 import {Buffer} from 'buffer';
+import {useUmi} from '../components/providers/UmiProvider';
+import {base58, generateSigner, percentAmount} from '@metaplex-foundation/umi';
+import {createNft} from '@metaplex-foundation/mpl-token-metadata';
 
 export default function MainScreen() {
   const {authorizeSession} = useAuthorization();
   const {connection} = useConnection();
+  const umi = useUmi();
   const {selectedAccount} = useAuthorization();
   const [balance, setBalance] = useState<number | null>(null);
   const [photoPath, setPhotoPath] = useState<string | null>(null);
@@ -201,6 +205,22 @@ export default function MainScreen() {
 
         const metadataData = await metadataUploadResponse.json();
         console.log(metadataData);
+
+        const mint = generateSigner(umi);
+        const tx = await createNft(umi, {
+          mint: mint,
+          sellerFeeBasisPoints: percentAmount(5.5),
+          name: metadata.name.toString(),
+          uri: `https://gateway.pinata.cloud/ipfs/${metadataData.IpfsHash}`,
+        }).sendAndConfirm(umi, {
+          send: {skipPreflight: true, commitment: 'confirmed', maxRetries: 3},
+        });
+
+        const signature = base58.deserialize(tx.signature)[0];
+        console.log(
+          'transaction: ',
+          `https://explorer.solana.com/tx/${signature}?cluster=devnet`,
+        );
 
         // Here you would typically continue with minting the NFT using the metadata CID
         // This part depends on your specific blockchain and minting process
