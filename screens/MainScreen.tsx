@@ -29,7 +29,7 @@ import {
   transact,
   Web3MobileWallet,
 } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
-import useMetaplex from '../metaplex-util/useMetaplex';
+import {Buffer} from 'buffer';
 
 export default function MainScreen() {
   const {authorizeSession} = useAuthorization();
@@ -102,92 +102,110 @@ export default function MainScreen() {
 
   const mintNft = async () => {
     if (photoPath) {
-      // Read the image file and get the base64 string.
-      const imageBytesInBase64: string = await RNFetchBlob.fs.readFile(
-        photoPath,
-        'base64',
-      );
+      try {
+        // Read the image file and get the base64 string.
+        const imageBytesInBase64: string = await RNFetchBlob.fs.readFile(
+          photoPath,
+          'base64',
+        );
 
-      // Convert base64 into raw bytes.
-      const bytes = Buffer.from(imageBytesInBase64, 'base64');
+        // Convert base64 into raw bytes.
+        const bytes = Buffer.from(imageBytesInBase64, 'base64');
 
-      // Upload the image to IPFS by sending a POST request to the NFT.storage upload endpoint.
-      const headers = {
-        Accept: 'application/json',
-        Authorization: `Bearer ${Config.NFT_STORAGE_API_KEY}`,
-      };
-      const imageUpload = await fetch('https://api.nft.storage/upload', {
-        method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'image/jpg',
-        },
-        body: bytes,
-      });
+        // Upload the image to Pinata
+        const formData = new FormData();
+        formData.append('file', {
+          uri: photoPath,
+          type: 'image/jpeg',
+          name: 'photo.jpg',
+        });
 
-      const imageData = await imageUpload.json();
-      console.log(imageData.value.cid);
-      const walletAddress = await transact(async (wallet: Web3MobileWallet) => {
-        const authorizationResult = await authorizeSession(wallet);
-        return authorizationResult.address;
-      });
-      const metadata = {
-        name: 'Lattitude mint nft',
-        description: `Lattitude mint nft, minted at ${location?.latitude},${location?.longitude}`,
-        image: `https://ipfs.io/ipfs/${imageData.value.cid}`,
-        external_url: 'https://github.com/Laugharne/ssf_s7_exo',
-        attributes: [
+        const imageUploadResponse = await fetch(
+          'https://api.pinata.cloud/pinning/pinFileToIPFS',
           {
-            trait_type: 'Latitude',
-            value: location?.latitude,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'multipart/form-data',
+              Authorization: `Bearer ${Config.PINATA_JWT}`,
+            },
+            body: formData,
           },
-          {
-            trait_type: 'Longitude',
-            value: location?.longitude,
+        );
+
+        const imageData = await imageUploadResponse.json();
+        console.log(imageData);
+
+        const walletAddress = await transact(
+          async (wallet: Web3MobileWallet) => {
+            const authorizationResult = await authorizeSession(wallet);
+            return authorizationResult.publicKey;
           },
-        ],
-        properties: {
-          files: [
+        );
+
+        const metadata = {
+          name: 'Lattitude mint nft',
+          symbol: 'Lattitude mint',
+          description: `Lattitude mint nft, minted at ${location?.latitude},${location?.longitude}`,
+          image: `https://gateway.pinata.cloud/ipfs/${imageData.IpfsHash}`,
+          external_url: 'https://github.com/Laugharne/ssf_s7_exo',
+          attributes: [
             {
-              uri: `https://ipfs.io/ipfs/${imageData.value.cid}`,
-              type: 'image/jpeg',
+              trait_type: 'Latitude',
+              value: location?.latitude,
+            },
+            {
+              trait_type: 'Longitude',
+              value: location?.longitude,
             },
           ],
-          category: 'image',
-        },
-        creators: [
-          {
-            address: walletAddress,
-            share: 100,
+          properties: {
+            files: [
+              {
+                uri: `https://gateway.pinata.cloud/ipfs/${imageData.IpfsHash}`,
+                type: 'image/jpeg',
+              },
+            ],
+            category: 'image',
           },
-        ],
-      };
-      // Upload to IPFS
-      const metadataUpload = await fetch('https://api.nft.storage/upload', {
-        method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(metadata),
-      });
-      const metadataData = await metadataUpload.json();
-      console.log(metadataData.value.cid);
-      const {metaplex} = useMetaplex(
-        connection,
-        selectedAccount,
-        authorizeSession,
-      );
+          creators: [
+            {
+              address: walletAddress.toBase58(),
+              share: 100,
+            },
+          ],
+        };
 
-      if (metaplex) {
-        const {nft, response} = await metaplex.nfts().create({
-          name: metadata.name,
-          uri: `https://ipfs.io/ipfs/${metadataData.value.cid}`,
-          sellerFeeBasisPoints: 0,
-          tokenOwner: selectedAccount?.publicKey,
-        });
-        console.log(nft.address.toBase58());
-        console.log(response.signature);
+        // Prepare the request body for pinJSONToIPFS
+        const pinJSONBody = {
+          pinataContent: metadata,
+          pinataOptions: {
+            cidVersion: 1,
+          },
+          pinataMetadata: {
+            name: 'Lattitude NFT Metadata',
+          },
+        };
+
+        // Upload metadata to Pinata
+        const metadataUploadResponse = await fetch(
+          'https://api.pinata.cloud/pinning/pinJSONToIPFS',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${Config.PINATA_JWT}`,
+            },
+            body: JSON.stringify(pinJSONBody),
+          },
+        );
+
+        const metadataData = await metadataUploadResponse.json();
+        console.log(metadataData);
+
+        // Here you would typically continue with minting the NFT using the metadata CID
+        // This part depends on your specific blockchain and minting process
+      } catch (error) {
+        console.error('Error minting NFT:', error);
       }
     }
   };

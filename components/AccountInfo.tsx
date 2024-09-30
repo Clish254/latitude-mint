@@ -38,7 +38,9 @@ export default function AccountInfo({
               } SOL`
             : 'Wallet name not found'}
         </Text>
-        <Text style={styles.walletNameSubtitle}>{selectedAccount.address}</Text>
+        <Text style={styles.walletNameSubtitle}>
+          {selectedAccount.publicKey.toBase58()}
+        </Text>
         <View style={styles.buttonGroup}>
           <DisconnectButton title={'Disconnect'} />
           <RequestAirdropButton

@@ -14,6 +14,7 @@ module.exports = {
       path: require.resolve('path-browserify'),
       url: require.resolve('react-native-url-polyfill'),
       arbundles: require.resolve('arbundles'),
+      buffer: require.resolve('buffer'),
     },
   },
   transformer: {
