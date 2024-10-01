@@ -9,7 +9,6 @@ import {AuthorizationProvider} from './components/providers/AuthorizationProvide
 import {Header} from './components/Header';
 
 import MainScreen from './screens/MainScreen';
-import {UmiProvider} from './components/providers/UmiProvider';
 
 export default function App() {
   return (
@@ -17,12 +16,10 @@ export default function App() {
       config={{commitment: 'processed'}}
       endpoint={clusterApiUrl(RPC_ENDPOINT)}>
       <AuthorizationProvider>
-        <UmiProvider endpoint={clusterApiUrl(RPC_ENDPOINT)}>
-          <SafeAreaView style={styles.shell}>
-            <Header />
-            <MainScreen />
-          </SafeAreaView>
-        </UmiProvider>
+        <SafeAreaView style={styles.shell}>
+          <Header />
+          <MainScreen />
+        </SafeAreaView>
       </AuthorizationProvider>
     </ConnectionProvider>
   );

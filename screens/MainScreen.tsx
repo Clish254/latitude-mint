@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 
+import {fromUint8Array} from 'js-base64';
 import {Section} from '../components/Section';
 import ConnectButton from '../components/ConnectButton';
 import AccountInfo from '../components/AccountInfo';
@@ -30,14 +31,22 @@ import {
   Web3MobileWallet,
 } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
 import {Buffer} from 'buffer';
-import {useUmi} from '../components/providers/UmiProvider';
-import {base58, generateSigner, percentAmount} from '@metaplex-foundation/umi';
-import {createNft} from '@metaplex-foundation/mpl-token-metadata';
+//import {createNft} from '@metaplex-foundation/mpl-token-metadata';
+import {Keypair, PublicKey, SystemProgram, Transaction} from '@solana/web3.js';
+import {createCreateMetadataAccountV3Instruction} from '@metaplex-foundation/mpl-token-metadata';
+import {
+  createAssociatedTokenAccountInstruction,
+  createInitializeMintInstruction,
+  createMintToInstruction,
+  getAssociatedTokenAddress,
+  MINT_SIZE,
+  TOKEN_PROGRAM_ID,
+} from '@solana/spl-token';
+import {alertAndLog} from '../util/alertAndLog';
 
 export default function MainScreen() {
   const {authorizeSession} = useAuthorization();
   const {connection} = useConnection();
-  const umi = useUmi();
   const {selectedAccount} = useAuthorization();
   const [balance, setBalance] = useState<number | null>(null);
   const [photoPath, setPhotoPath] = useState<string | null>(null);
@@ -148,10 +157,10 @@ export default function MainScreen() {
 
         const metadata = {
           name: 'Lattitude mint nft',
-          symbol: 'Lattitude mint',
+          symbol: 'Latt',
           description: `Lattitude mint nft, minted at ${location?.latitude},${location?.longitude}`,
           image: `https://gateway.pinata.cloud/ipfs/${imageData.IpfsHash}`,
-          external_url: 'https://github.com/Laugharne/ssf_s7_exo',
+          external_url: 'https://github.com/Clish254/latitude-mint',
           attributes: [
             {
               trait_type: 'Latitude',
@@ -173,7 +182,8 @@ export default function MainScreen() {
           },
           creators: [
             {
-              address: walletAddress.toBase58(),
+              address: walletAddress,
+              verified: false,
               share: 100,
             },
           ],
@@ -206,24 +216,132 @@ export default function MainScreen() {
         const metadataData = await metadataUploadResponse.json();
         console.log(metadataData);
 
-        const mint = generateSigner(umi);
-        const tx = await createNft(umi, {
-          mint: mint,
-          sellerFeeBasisPoints: percentAmount(5.5),
-          name: metadata.name.toString(),
+        const mint = new Keypair();
+        const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
+          'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',
+        );
+        const mintMetadata = {
+          name: metadata.name,
+          symbol: metadata.symbol,
           uri: `https://gateway.pinata.cloud/ipfs/${metadataData.IpfsHash}`,
-        }).sendAndConfirm(umi, {
-          send: {skipPreflight: true, commitment: 'confirmed', maxRetries: 3},
-        });
-
-        const signature = base58.deserialize(tx.signature)[0];
-        console.log(
-          'transaction: ',
-          `https://explorer.solana.com/tx/${signature}?cluster=devnet`,
+          sellerFeeBasisPoints: 500,
+          creators: metadata.creators,
+          collection: null,
+          uses: null,
+        };
+        const metadataPDAAndBump = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from('metadata'),
+            TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+            mint.publicKey.toBuffer(),
+          ],
+          TOKEN_METADATA_PROGRAM_ID,
         );
 
-        // Here you would typically continue with minting the NFT using the metadata CID
-        // This part depends on your specific blockchain and minting process
+        const metadataPDA = metadataPDAAndBump[0];
+
+        const signedTransaction = await transact(
+          async (wallet: Web3MobileWallet) => {
+            const [authorizationResult, latestBlockhash] = await Promise.all([
+              authorizeSession(wallet),
+              connection.getLatestBlockhash(),
+            ]);
+            console.log('Creating new mint...');
+
+            // Calculate rent for mint
+            const lamports = await connection.getMinimumBalanceForRentExemption(
+              MINT_SIZE,
+            );
+            // Create instructions
+            const createAccountInstruction = SystemProgram.createAccount({
+              fromPubkey: walletAddress,
+              newAccountPubkey: mint.publicKey,
+              space: MINT_SIZE,
+              lamports,
+              programId: TOKEN_PROGRAM_ID,
+            });
+            const initializeMintInstruction = createInitializeMintInstruction(
+              mint.publicKey,
+              0,
+              walletAddress,
+              walletAddress,
+            );
+            // Get the associated token account address
+            const associatedTokenAddress = await getAssociatedTokenAddress(
+              mint.publicKey,
+              walletAddress,
+            );
+
+            // Create the associated token account if it doesn't exist
+            const createAssociatedTokenAccountIx =
+              createAssociatedTokenAccountInstruction(
+                walletAddress,
+                associatedTokenAddress,
+                walletAddress,
+                mint.publicKey,
+              );
+
+            // Create mint-to instruction
+            const mintToInstruction = createMintToInstruction(
+              mint.publicKey,
+              associatedTokenAddress,
+              walletAddress,
+              1,
+            );
+            // Create metadata account instruction
+            // check https://solana.stackexchange.com/questions/7909/how-to-build-an-instruction-to-a-create-metadata-account-using-latest-mpl-token
+            const createMetadataAccountInstruction =
+              createCreateMetadataAccountV3Instruction(
+                {
+                  metadata: metadataPDA,
+                  mint: mint.publicKey,
+                  mintAuthority: authorizationResult.publicKey,
+                  payer: authorizationResult.publicKey,
+                  updateAuthority: authorizationResult.publicKey,
+                },
+                {
+                  createMetadataAccountArgsV3: {
+                    collectionDetails: null,
+                    data: mintMetadata,
+                    isMutable: true,
+                  },
+                },
+              );
+            const transaction = new Transaction({
+              ...latestBlockhash,
+              feePayer: authorizationResult.publicKey,
+            });
+            transaction.add(
+              createAccountInstruction,
+              initializeMintInstruction,
+              createAssociatedTokenAccountIx,
+              mintToInstruction,
+              createMetadataAccountInstruction,
+            );
+
+            // Sign a transaction and receive
+            const signedTransactions = await wallet.signTransactions({
+              transactions: [transaction],
+            });
+
+            return signedTransactions[0];
+          },
+        );
+
+        signedTransaction.partialSign(mint);
+        const signature = await connection.sendRawTransaction(
+          signedTransaction.serialize(),
+        );
+        await connection.confirmTransaction(signature);
+
+        console.log(
+          `NFT minted successfully. Token Mint: https://explorer.solana.com/address/${mint.publicKey.toBase58()}?cluster=devnet`,
+        );
+        alertAndLog(
+          'NFT minted successfully🎉',
+          `Token Mint: https://explorer.solana.com/address/${mint.publicKey.toBase58()}?cluster=devnet`,
+        );
+        console.log('signature', signature);
       } catch (error) {
         console.error('Error minting NFT:', error);
       }
