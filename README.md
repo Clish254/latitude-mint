@@ -26,11 +26,7 @@ npm install -g yarn
 ```sh
 yarn install
 ```
-3. Run metaplex fixer
-```
-node metaplex-fixer.mjs
-```
-4. Run the app
+3. Run the app
 ```sh
 npx react-native run-android
 ```
