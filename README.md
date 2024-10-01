@@ -13,6 +13,8 @@ Build an app that captures an image through the camera, mints an NFT with that i
 - react-native-image-picker
 - @react-native-community/geolocation
 
+## Demo
+You can watch the demo loom video [here](https://www.loom.com/share/dbef2675a7a249ee931b43c1395ce008?sid=370b0bf4-062b-4c29-bed8-d4f3657860d8)
 ![demo](demo.png)
 
 ## Steps to run the project
